@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js"></script>
+    <style>
+        /* 设置全局样式 */
+        * {
+            box-sizing: border-box;
+        }
+
+        /* 设置容器样式 */
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+
+        div {
+            margin-bottom: 10px;
+        }
+
+        /* 设置输入框和按钮样式 */
+        textarea, button {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            margin-top: 5px;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        button:active {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div>
+        <label for="text">明文/密文：</label>
+        <textarea id="text" rows="5"></textarea>
+    </div>
+    <div>
+        <label for="file">选择文件：</label>
+        <input type="file" id="file" accept=".txt, .jpg, .png, .mp4, .wav">
+        <button onclick="selectFile()">选择</button>
+    </div>
+    <div>
+        <button onclick="encrypt()">加密</button>
+        <button onclick="decrypt()">解密</button>
+    </div>
+    <div>
+        <label for="result">结果：</label>
+        <textarea id="result" rows="5" readonly></textarea>
+    </div>
+    <div id="saveButtonContainer" style="display: none;">
+        <button onclick="saveFile()">保存文件</button>
+    </div>
+    <div>
+        <label for="filename">文件名：</label>
+        <textarea id="filename" rows="1" readonly></textarea>
+    </div>
+
+    <script>
+        var key = CryptoJS.enc.Utf8.parse("12345678901234567890123456789012");
+        var selectedFile = null;
+
+        // 选择文件
+        function selectFile() {
+            var fileInput = document.getElementById("file");
+            var filenameInput = document.getElementById("filename");
+
+            if (fileInput.files.length > 0) {
+                selectedFile = fileInput.files[0];
+                filenameInput.value = selectedFile.name;
+            } else {
+                alert("请选择一个文件");
+                selectedFile = null;
+                filenameInput.value = "";
+            }
+        }
+
+        // 加密
+        function encrypt() {
+            var textInput = document.getElementById("text").value.trim();
+
+            if (textInput === "" && selectedFile === null) {
+                alert("请输入明文或选择一个文件");
+                return;
+            }
+
+            if (textInput !== "") {
+                var fileExtension = getFileExtension(textInput);
+                if (fileExtension === "txt") {
+                    var encryptedText = CryptoJS.AES.encrypt(textInput, key, {mode: CryptoJS.mode.ECB}).toString();
+                    document.getElementById("result").value = encryptedText;
+                } else {
+                    alert("不支持的文件类型");
+                }
+            } else {
+                var fileReader = new FileReader();
+                fileReader.onload = function(event) {
+                    var fileExtension = getFileExtension(selectedFile.name);
+                    if (fileExtension === "jpg" || fileExtension === "png") {
+                        var encryptedDataUrl = encryptImage(event.target.result);
+                        document.getElementById("result").value = encryptedDataUrl;
+                    } else if (fileExtension === "mp4" || fileExtension === "wav") {
+                        var arrayBuffer = event.target.result;
+                        var encryptedArrayBuffer = encryptArrayBuffer(arrayBuffer);
+                        var blob = new Blob([encryptedArrayBuffer], {type: "application/octet-stream"});
+                        document.getElementById("result").value = URL.createObjectURL(blob);
+                        enableSaveButton();
+                    } else {
+                        alert("不支持的文件类型");
+                    }
+                };
+                fileReader.readAsArrayBuffer(selectedFile);
+            }
+        }
+
+        // 解密
+        function decrypt() {
+            var encryptedText = document.getElementById("text").value.trim();
+
+            if (encryptedText === "" && selectedFile === null) {
+                alert("请输入密文或选择一个文件");
+                return;
+            }
+
+            if (encryptedText !== "") {
+                try {
+                    var decryptedText = CryptoJS.AES.decrypt(encryptedText, key, {mode: CryptoJS.mode.ECB}).toString(CryptoJS.enc.Utf8);
+                    document.getElementById("result").value = decryptedText;
+                    enableSaveButton();
+                } catch (error) {
+                    alert("解密失败，请输入有效的密文");
+                }
+            } else {
+                var fileReader = new FileReader();
+                fileReader.onload = function(event) {
+                    var fileExtension = getFileExtension(selectedFile.name);
+                    if (fileExtension === "jpg" || fileExtension === "png") {
+                        var decryptedDataUrl = decryptImage(event.target.result);
+                        document.getElementById("result").value = decryptedDataUrl;
+                    } else if (fileExtension === "mp4" || fileExtension === "wav") {
+                        var encryptedArrayBuffer = event.target.result;
+                        var decryptedArrayBuffer = decryptArrayBuffer(encryptedArrayBuffer);
+                        var blob = new Blob([decryptedArrayBuffer], {type: "application/octet-stream"});
+                        document.getElementById("result").value = URL.createObjectURL(blob);
+                        enableSaveButton();
+                    } else {
+                        alert("不支持的文件类型");
+                    }
+                };
+                fileReader.readAsArrayBuffer(selectedFile);
+            }
+        }
+
+        // 加密图像
+        function encryptImage(dataUrl) {
+            var canvas = document.createElement("canvas");
+            var ctx = canvas.getContext("2d");
+            var img = new Image();
+
+            img.onload = function() {
+                canvas.width = img.width;
+                canvas.height = img.height;
+
+                ctx.drawImage(img, 0, 0);
+
+                var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                for (var i = 0; i < imageData.data.length; i += 4) {
+                    imageData.data[i] ^= key[i % key.length];
+                    imageData.data[i + 1] ^= key[(i + 1) % key.length];
+                    imageData.data[i + 2] ^= key[(i + 2) % key.length];
+                }
+
+                ctx.putImageData(imageData, 0, 0);
+
+                var encryptedDataUrl = canvas.toDataURL();
+                enableSaveButton();
+                return encryptedDataUrl;
+            };
+
+            img.src = dataUrl;
+        }
+
+        // 解密图像
+        function decryptImage(dataUrl) {
+            var canvas = document.createElement("canvas");
+            var ctx = canvas.getContext("2d");
+            var img = new Image();
+
+            img.onload = function() {
+                canvas.width = img.width;
+                canvas.height = img.height;
+
+                ctx.drawImage(img, 0, 0);
+
+                var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                for (var i = 0; i < imageData.data.length; i += 4) {
+                    imageData.data[i] ^= key[i % key.length];
+                    imageData.data[i + 1] ^= key[(i + 1) % key.length];
+                    imageData.data[i + 2] ^= key[(i + 2) % key.length];
+                }
+
+                ctx.putImageData(imageData, 0, 0);
+
+                var decryptedDataUrl = canvas.toDataURL();
+                enableSaveButton();
+                return decryptedDataUrl;
+            };
+
+            img.src = dataUrl;
+        }
+
+        // 加密数组缓冲区
+        function encryptArrayBuffer(arrayBuffer) {
+            var dataView = new DataView(arrayBuffer);
+            var encryptedBytes = [];
+            for (var i = 0; i < dataView.byteLength; i++) {
+                encryptedBytes.push(dataView.getUint8(i) ^ key[i % key.length]);
+            }
+            return new Uint8Array(encryptedBytes).buffer;
+        }
+
+        // 解密数组缓冲区
+        function decryptArrayBuffer(arrayBuffer) {
+            return encryptArrayBuffer(arrayBuffer); // 加密和解密算法相同
+        }
+
+        // 获取文件扩展名
+        function getFileExtension(filename) {
+            return filename.split('.').pop().toLowerCase();
+        }
+
+        // 保存文件
+        function saveFile() {
+            var fileContent = document.getElementById("result").value;
+            var blob = new Blob([fileContent], {type: "text/plain"});
+            var url = URL.createObjectURL(blob);
+
+            var link = document.createElement("a");
+            link.href = url;
+            link.download = selectedFile.name.replace(".txt", "") + "-decrypted.txt";
+            link.click();
+
+            URL.revokeObjectURL(url);
+        }
+
+        // 启用保存按钮
+        function enableSaveButton() {
+            var saveButtonContainer = document.getElementById("saveButtonContainer");
+            saveButtonContainer.style.display = "block";
+        }
+    </script>
+</body>
+</html>
